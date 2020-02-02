@@ -21,7 +21,7 @@ The [binary_classifier.py](binary_classifier.py) file contains the code of the d
 The [extractor.py](extractor.py) file contains the core of the information extraction.  
 You can use the function *extract_casualties* to extract the casualties from the news text. The function *getlocation* in class *Loaction_extactor* is used to extract the information about the loaction which appears in the news title.
 ## Extra Data
-We do not provide data here, you can obtain data from the following data sources:
+You can obtain data from the following hyperlink:
 
 >[Nightlight data](https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144897/BlackMarble_2016_3km_gray_geo.tif)  
 [Underlying economic data](https://sedac.ciesin.columbia.edu/data/set/spatialecon-gecon-v4)  
