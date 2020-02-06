@@ -44,7 +44,7 @@ If want to run One-Step-Ahead experiment, you must use the first two steps of cl
 We include smaller training data in this repository. For other data used in our model, we provide their download pages:
 
 >[Global Terrorism Database (described in section 4.1.3)](https://www.start.umd.edu/gtd/):
-The Global Terrorism Database is an an-nually updated open-source database of terrorist attacks that documents more than 180,000 events from 1970 to 2017 worldwide with 135 attributes.
+The Global Terrorism Database is an an-nually updated open-source database of terrorist attacks that documents more than 180,000 events from 1970 to 2017 worldwide with 135 attributes.  
 [Nightlight data (described in section 4.1.4)](https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144897/BlackMarble_2016_3km_gray_geo.tif): Global nightlight intensity data in grayscale is from NASA. Nightlight intensity values are mapped into corresponding pixels by aggregating the values measured in 2016 to form a single snapshot. The data is of high-precision with each pixel representing the average nightlight intensity value within a 3km by 3 km bounding box. The value range is from 0 (dark) to 255 (max light intensity).   
 [Population density data (described in section 4.1.4)](https://sedac.ciesin.columbia.edu/data/set/spatialecon-gecon-v4): The population density measures population per unit area.   
 [The New York Times News Data](https://developer.nytimes.com/): New York Times API which is uesed to obtain the NYT news data.  
@@ -53,4 +53,4 @@ The Global Terrorism Database is an an-nually updated open-source database of te
 
 Unfortunately, the Reuters archive website is not available now.  
 
-In the sample_data folder, we provide samples of the above data (except that the nightlight file， which is too large).
+In the sample_data folder, we provide samples of the above data (except that the nightlight file, which is too large).
