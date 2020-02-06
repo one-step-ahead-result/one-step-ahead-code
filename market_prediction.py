@@ -32,6 +32,7 @@ from pdpbox import pdp, get_dataset, info_plots
 from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import precision_score,recall_score,f1_score,roc_auc_score,roc_curve
+import sys
 
 EARTH_RADIUS=6371
 
@@ -73,7 +74,7 @@ def get_distance_hav(lat0, lng0, lat1, lng1):
  
 	return distance	
 	
-# Load the underlying economic data - https://sedac.ciesin.columbia.edu/data/set/spatialecon-gecon-v4
+# Load the population density data - https://sedac.ciesin.columbia.edu/data/set/spatialecon-gecon-v4
 
 def load_eco(filename,country):
 	basic_ec_file1 = filename
@@ -85,15 +86,6 @@ def load_eco(filename,country):
 		temp.append(basic_ec.iloc[i]['LAT'])
 		lonlat_list.append(temp)
 	return lonlat_list
-
-lonlat_list = load_eco('basic_eco.xls',"Israel")
-	
-# Load the nightlight data - https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144897/BlackMarble_2016_3km_gray_geo.tif
-
-gray_file = open("nightlight.csv","rb")
-nl_tmp = np.loadtxt(gray_file,delimiter=',',skiprows=0)
-gray_file.close()
-nl = np.array(nl_tmp)	
 
 # Make terrorist attack features
 
@@ -138,107 +130,6 @@ def adjust_week(timestamp,week):
 		return (timestamp+datetime.timedelta(days=1)).strftime("%Y/%m/%d")
 	return timestamp.strftime("%Y/%m/%d")
 
-# Load the GTD data - https://www.start.umd.edu/gtd/
-gtd_original = pd.read_excel('gtd90_17.xlsx')	
-
-gtd = gtd_original[gtd_original['country'] == 97]
-gtd = gtd[gtd['iday']!=0]
-gtd['Timestamp'] = gtd['eventid'].apply(num2date)
-gtd = gtd[['Timestamp','latitude','longitude','nkill','nwound','city','provstate']]
-gtd = gtd.dropna()
-
-# capital/cultural center/religious center labels - From Wikipedia
-capital = ['Jerusalem','Nazareth','Haifa','Ramla','Tel Aviv','Beersheva']
-cultural_center = ['Tel Aviv']
-religious_center = ['Jerusalem']
-		
-gtd['capital'] = gtd['city'].apply(contain_or_not,args=(capital,))
-gtd['cultural_center'] = gtd['city'].apply(contain_or_not,args=(cultural_center,))
-gtd['religious_center'] = gtd['city'].apply(contain_or_not,args=(religious_center,))
-
-# One-hot encoding of provstate
-gtd = gtd.join(pd.get_dummies(gtd.provstate))
-
-gtd['week'] = gtd['Timestamp'].apply(get_week_day)
-gtd['Timestamp'] =  gtd.apply(lambda x :adjust_week(x['Timestamp'],x['week']),axis=1)
-gtd['Timestamp'] = gtd['Timestamp'].apply(num2date_)
-gtd['week'] = gtd['Timestamp'].apply(get_week_day)
-gtd['nightlight'] = gtd.apply(lambda row: compute_nl(row['longitude'], row['latitude']), axis=1)
-basic_ec[['LAT']] = basic_ec[['LAT']].apply(pd.to_numeric)
-basic_ec[['LONGITUDE']] = basic_ec[['LONGITUDE']].apply(pd.to_numeric)
-gtd = gtd.reset_index(drop=True)
-
-add_feature = ['POPGPW_2005_40']
-gtd = pd.concat([gtd, pd.DataFrame(columns=add_feature)])
-
-for i in range(gtd.shape[0]):
-	distance = []
-	lon = gtd.iloc[i]['longitude']
-	lat = gtd.iloc[i]['latitude']
-	for j in range(basic_ec.shape[0]):
-		distance.append(geodesic((lonlat_list[j][1],lonlat_list[j][0]), (lat,lon)))
-	min_index = distance.index(min(distance)) 
-	for j in range(len(add_feature)):
-		# Calculate the population density
-		gtd.loc[i,add_feature[j]] = float(basic_ec.iloc[min_index][add_feature[j]]/basic_ec.iloc[min_index]['AREA'])
-gtd[add_feature] = gtd[add_feature].apply(pd.to_numeric)
-keep_geo = gtd.groupby('Timestamp').first()
-gtd_grouped = gtd_one_hot(gtd)
-gtd_grouped = gtd_grouped.reset_index('Timestamp')
-gtd_grouped['longitude'] = pd.Series(list(keep_geo['longitude']))
-gtd_grouped['latitude'] = pd.Series(list(keep_geo['latitude']))
-
-# In order to take normal day into account from 1989/12/31 to 2018/01/01
-b = dt.datetime.strptime('1989/12/31', '%Y/%m/%d').date()
-ind = []
-vi = []
-for x in range(12000):
-	b += pd.Timedelta(days = 1)
-	if b == dt.datetime.strptime('2018/01/01', '%Y/%m/%d').date():
-		break		
-	if get_week_day(b) == 5 or get_week_day(b) == 6:
-		continue		
-	ind.append(b)
-	vi.append(1)
-ts = pd.Series(vi, index = ind)
-dict_ts = {'Timestamp':ts.index}
-df_day = pd.DataFrame(dict_ts)
-
-gtd_grouped = pd.merge(gtd_grouped,df_day,how='right')
-gtd_grouped = gtd_grouped.sort_values(by=['Timestamp'])
-gtd_grouped = gtd_grouped.reset_index()
-gtd_grouped = gtd_grouped.drop(['index'],axis=1)
-gtd_grouped.fillna(0,inplace=True)
-gtd_grouped['week'] = gtd_grouped['Timestamp'].apply(get_week_day)
-gtd_grouped = gtd_grouped.drop(['week'],axis=1)
-
-tmp = list(gtd_grouped)[1:]
-for i in list(list(gtd_grouped)[1:]):
-	if i == 'Timestamp':
-		continue
-	gtd_grouped = lag(gtd_grouped,i,2)
-gtd_grouped = gtd_grouped[(gtd_grouped['occur_count']!=0) | (gtd_grouped['occur_count_1']!=0) | (gtd_grouped['occur_count_2']!=0)]
-gtd_grouped = gtd_grouped.fillna(0)
-
-for i in tmp:
-	sum_str = 'sum_' + i
-	str1 = i+'_1'
-	str2 = i+'_2'
-	if i == 'latitude' or i == 'longitude':
-		gtd_grouped[sum_str] = pd.Series(list(gtd_grouped[str1]))
-		gtd_grouped = gtd_grouped.drop([str1,str2],axis=1)
-		continue
-	if i == 'nightlight':
-		# For nightlight, take the max
-		gtd_grouped[sum_str] = gtd_grouped.apply(lambda row: max(row[str1], row[str2]), axis=1)
-		gtd_grouped = gtd_grouped.drop([str1,str2],axis=1)
-		continue
-	# For other, take the sum
-	gtd_grouped[sum_str] = gtd_grouped[str1] + gtd_grouped[str2]
-	gtd_grouped = gtd_grouped.drop([str1,str2],axis=1)
-	
-gtd_grouped = gtd_grouped.drop(['latitude','longitude','sum_latitude','sum_longitude'],axis=1)
-
 # Make the market features
 
 def get_market_data(start,end,ref,goal,host,user,password,db):
@@ -278,29 +169,6 @@ def get_diff(origin_md,name):
 	
 	return md_onediff,md_twodiff	
 	
-# Load the market data - From Reuters client	
-sheetname='ISRAEL TA 100'
-Is100 = pd.read_excel('market_date_19.xlsx',sheetname)
-sheetname='SP500'
-Sp500 = pd.read_excel('market_date_19.xlsx',sheetname)	
-
-is100 = Is100.iloc[::-1]
-sp500 = Sp500.iloc[::-1]
-
-is100['Timestamp'] = is100['Timestamp'].apply(num2date_)
-sp500['Timestamp'] = sp500['Timestamp'].apply(num2date_)
-
-is100 = is100[is100['Timestamp'] < dt.datetime.strptime('2018-01-01', '%Y-%m-%d').date()]
-sp500 = sp500[sp500['Timestamp'] < dt.datetime.strptime('2018-01-01', '%Y-%m-%d').date()]
-
-sp500_onediff,sp500_twodiff = get_diff(sp500,'sp500')
-is100_onediff,is100_twodiff = get_diff(is100,'is100')
-		
-is100_twodiff = lag(is100_twodiff,'twologdiff_is100',2)
-is100_twodiff = is100_twodiff.dropna()
-sp500_onediff = lag(sp500_onediff,'logdiff_sp500',2)
-sp500_onediff = sp500_onediff.dropna()
-
 # Merge terrorist attack features and market features
 def diff_merge(gtd_grouped,diff_list):
 		
@@ -343,23 +211,6 @@ def final_process(gtd_grouped,diff_list,lag_features,lag_numbers,target_col,futu
 	
 	return feature
 	
-diff_list = [sp500_onediff,is100_twodiff]
-lag_features = []
-lag_numbers = []
-target_col = 'twologdiff_is100'
-future_drop_col = []
-feature = final_process(gtd_grouped,diff_list,lag_features,lag_numbers,target_col,future_drop_col)
-feature = feature.drop(['sum_POPGPW_2005_40','sum_nightlight'],axis=1)		
-
-print('Total number of features:',feature.shape[0])
-
-# Data splitting
-train = feature[:3502]
-val = feature[3502:3802]
-train[train['occur_count'] != 0].shape[0]
-val_cut_point = 3502
-cut_point = 3802
-
 def train_test(features,split_point):
 	y = list(features['target'])
 	X = features.drop(['target','Timestamp'],axis=1)
@@ -442,97 +293,274 @@ def train_dt(feature,cut_point,samples_leaf=1,depth=100):
 	print(precision, ' ',recall,' ',f1)
 	split_pos_neg(feature,y_pred)
 	
-# Market Only Baseline - Exp-FS
-test = pd.DataFrame(feature, columns=['Timestamp','logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2','target'])
-train_dt(test,cut_point)
+	
+def experment_full_sample(feature, cut_point):
+	
+	
+	# Market Only Baseline - Exp-FS
+	test = pd.DataFrame(feature, columns=['Timestamp','logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2','target'])
+	train_dt(test,cut_point)
 
-# Exp-FS
-X_train,x_val,Y_train,y_val,var_list = train_test(features[:cut_point],val_cut_point)
-_,mins,maxd = best_para(x_train,x_val,y_train,y_val)
-train_dt(feature,cut_point)
-
-# Exp-Terr
-feature_ = feature.copy()
-feature_ = feature_[(feature_['occur_count'] >= 1)]
-val_cut_point_terr = 320
-cut_point_terr = 415
-
-## Market Only Baseline - Exp-Terr
-test = pd.DataFrame(feature_, columns=['Timestamp','logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2','target'])
-train_dt(test,cut_point_terr)
-
-# Exp-Terr
-X_train,x_val,Y_train,y_val,var_list = train_test(feature_[:cut_point_terr],val_cut_point_terr)
-_,mins,maxd = best_para(x_train,x_val,y_train,y_val)
-train_dt(feature_,cut_point_terr)
-
-# One step ahead - Need to load the terrorist attack data extract from news since startdate 
-
-# Merge GTD data prior to that startdata and terrorist attack data extract from news since startdate
-gtd_news = pd.read_excel('reuters.xlsx','Israel')
-
-## rechange the load GTD data part
-gtd = gtd_original[gtd_original['country'] == 97]
-gtd = gtd[gtd['iday']!=0]
-gtd['Timestamp'] = gtd['eventid'].apply(num2date)
-gtd = gtd[['Timestamp','latitude','longitude','nkill','nwound','city','provstate']]
-gtd = gtd.dropna()
-startdate = '2007-01-01'
-gtd = gtd[gtd['Timestamp'] < dt.datetime.strptime(startdate, '%Y-%m-%d').date()]
-gtd_news['Timestamp'] = gtd_news['Timestamp'].apply(num2date_)
-gtd = pd.concat([gtd,gtd_news])
+	# Exp-FS
+	X_train,x_val,Y_train,y_val,var_list = train_test(features[:cut_point],val_cut_point)
+	_,mins,maxd = best_para(x_train,x_val,y_train,y_val)
+	train_dt(feature,cut_point)
 
 
-feature_all = feature.copy()
-feature = feature[feature['occur_count'] != 0]
-startdate = '2007-01-01'
-feature_train = feature[feature['Timestamp'] < dt.datetime.strptime(startdate, '%Y-%m-%d').date()]
-feature_test = feature[feature['Timestamp'] >= dt.datetime.strptime(startdate, '%Y-%m-%d').date()]
-test_time = list(feature_test['Timestamp'])
+def experment_terr(feature, cut_point):
+	# Exp-Terr
+	feature_ = feature.copy()
+	feature_ = feature_[(feature_['occur_count'] >= 1)]
+	val_cut_point_terr = 320
+	cut_point_terr = 415
 
-# Market-only baseline and full-feature version for one-step-ahead
-fall_count = 0
-fall_predict_true = 0
+	## Market Only Baseline - Exp-Terr
+	test = pd.DataFrame(feature_, columns=['Timestamp','logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2','target'])
+	train_dt(test,cut_point_terr)
 
-fall_predict_count = 0
-fall_predict_count_true = 0
-for i in range(len(test_time)):
-		train_set = pd.concat([feature_train[-feature_train.shape[0]+i:], feature_test[0:i]])
-		test_set = feature_test[i:i+1]
-		test_set = test_set.drop([], 1)
-		
-		
-		# market-only version
-		# x_train,x_test,y_train,y_test,var_list_market = train_test(train_set[['Timestamp','logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2','target']],train_set.shape[0])
-		# full-feature version
-		x_train,x_test,y_train,y_test,var_list = train_test(train_set,train_set.shape[0])
-		
-		time = str((test_set['Timestamp'].values)[0])
-		y = list(test_set['target'])
-		# market-only version
-		# X = test_set[['logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2']]
-		# full-feature version
-		X = test_set.drop(['target','Timestamp'],axis=1)
+	# Exp-Terr
+	X_train,x_val,Y_train,y_val,var_list = train_test(feature_[:cut_point_terr],val_cut_point_terr)
+	_,mins,maxd = best_para(x_train,x_val,y_train,y_val)
+	train_dt(feature_,cut_point_terr)
+	
+	
+def one_step_ahead(feature):
 
-		# market-only version
-		# clf = tree.DecisionTreeClassifier() 
-		# full-feature version
-		clf = tree.DecisionTreeClassifier(min_samples_leaf = 26) 
-		clf.fit(x_train, y_train)
-		y_pred = clf.predict(X)
-		if y == [1]:
-			fall_count += 1
-			if y_pred == [1]:
-				fall_predict_true += 1
-		if y_pred == [1]:
-			fall_predict_count += 1
+	# One step ahead - Need to load the terrorist attack data extract from news since startdate 
+
+	# Merge GTD data prior to that startdata and terrorist attack data extract from news since startdate
+	gtd_news = pd.read_excel('reuters.xlsx','Israel')
+
+	## rechange the load GTD data part
+	gtd = gtd_original[gtd_original['country'] == 97]
+	gtd = gtd[gtd['iday']!=0]
+	gtd['Timestamp'] = gtd['eventid'].apply(num2date)
+	gtd = gtd[['Timestamp','latitude','longitude','nkill','nwound','city','provstate']]
+	gtd = gtd.dropna()
+	startdate = '2007-01-01'
+	gtd = gtd[gtd['Timestamp'] < dt.datetime.strptime(startdate, '%Y-%m-%d').date()]
+	gtd_news['Timestamp'] = gtd_news['Timestamp'].apply(num2date_)
+	gtd = pd.concat([gtd,gtd_news])
+
+
+	feature_all = feature.copy()
+	feature = feature[feature['occur_count'] != 0]
+	startdate = '2007-01-01'
+	feature_train = feature[feature['Timestamp'] < dt.datetime.strptime(startdate, '%Y-%m-%d').date()]
+	feature_test = feature[feature['Timestamp'] >= dt.datetime.strptime(startdate, '%Y-%m-%d').date()]
+	test_time = list(feature_test['Timestamp'])
+
+	# Market-only baseline and full-feature version for one-step-ahead
+	fall_count = 0
+	fall_predict_true = 0
+
+	fall_predict_count = 0
+	fall_predict_count_true = 0
+	for i in range(len(test_time)):
+			train_set = pd.concat([feature_train[-feature_train.shape[0]+i:], feature_test[0:i]])
+			test_set = feature_test[i:i+1]
+			test_set = test_set.drop([], 1)
+			
+			
+			# market-only version
+			# x_train,x_test,y_train,y_test,var_list_market = train_test(train_set[['Timestamp','logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2','target']],train_set.shape[0])
+			# full-feature version
+			x_train,x_test,y_train,y_test,var_list = train_test(train_set,train_set.shape[0])
+			
+			time = str((test_set['Timestamp'].values)[0])
+			y = list(test_set['target'])
+			# market-only version
+			# X = test_set[['logdiff_sp500','logdiff_sp500_1','twologdiff_is100_1','twologdiff_is100_2','logdiff_sp500_2']]
+			# full-feature version
+			X = test_set.drop(['target','Timestamp'],axis=1)
+
+			# market-only version
+			# clf = tree.DecisionTreeClassifier() 
+			# full-feature version
+			clf = tree.DecisionTreeClassifier(min_samples_leaf = 26) 
+			clf.fit(x_train, y_train)
+			y_pred = clf.predict(X)
 			if y == [1]:
-				fall_predict_count_true += 1
+				fall_count += 1
+				if y_pred == [1]:
+					fall_predict_true += 1
+			if y_pred == [1]:
+				fall_predict_count += 1
+				if y == [1]:
+					fall_predict_count_true += 1
 
 
 
-plusprecision = fall_predict_count_true/fall_predict_count
-plusrecall = fall_predict_true/fall_count
-f1 = 2*(plusprecision*plusrecall)/(plusprecision+plusrecall)
-print(plusprecision,' ',plusrecall,' ',f1)
-print(fall_predict_count_true,' ',fall_predict_count,' ',fall_predict_true,' ',fall_count)
+	plusprecision = fall_predict_count_true/fall_predict_count
+	plusrecall = fall_predict_true/fall_count
+	f1 = 2*(plusprecision*plusrecall)/(plusprecision+plusrecall)
+	print(plusprecision,' ',plusrecall,' ',f1)
+	print(fall_predict_count_true,' ',fall_predict_count,' ',fall_predict_true,' ',fall_count)
+
+def main(argv):
+
+	# Load the population density data - https://sedac.ciesin.columbia.edu/data/set/spatialecon-gecon-v4	
+	lonlat_list = load_eco('basic_eco.xls',"Israel")
+		
+	# Load the nightlight data - https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144897/BlackMarble_2016_3km_gray_geo.tif
+
+	gray_file = open("nightlight.csv","rb")
+	nl_tmp = np.loadtxt(gray_file,delimiter=',',skiprows=0)
+	gray_file.close()
+	nl = np.array(nl_tmp)	
+
+	# Load the GTD data - https://www.start.umd.edu/gtd/
+	gtd_original = pd.read_excel('gtd90_17.xlsx')	
+
+	gtd = gtd_original[gtd_original['country'] == 97]
+	gtd = gtd[gtd['iday']!=0]
+	gtd['Timestamp'] = gtd['eventid'].apply(num2date)
+	gtd = gtd[['Timestamp','latitude','longitude','nkill','nwound','city','provstate']]
+	gtd = gtd.dropna()
+
+	# capital/cultural center/religious center labels - From Wikipedia
+	capital = ['Jerusalem','Nazareth','Haifa','Ramla','Tel Aviv','Beersheva']
+	cultural_center = ['Tel Aviv']
+	religious_center = ['Jerusalem']
+			
+	gtd['capital'] = gtd['city'].apply(contain_or_not,args=(capital,))
+	gtd['cultural_center'] = gtd['city'].apply(contain_or_not,args=(cultural_center,))
+	gtd['religious_center'] = gtd['city'].apply(contain_or_not,args=(religious_center,))
+
+	# One-hot encoding of provstate
+	gtd = gtd.join(pd.get_dummies(gtd.provstate))
+
+	gtd['week'] = gtd['Timestamp'].apply(get_week_day)
+	gtd['Timestamp'] =  gtd.apply(lambda x :adjust_week(x['Timestamp'],x['week']),axis=1)
+	gtd['Timestamp'] = gtd['Timestamp'].apply(num2date_)
+	gtd['week'] = gtd['Timestamp'].apply(get_week_day)
+	gtd['nightlight'] = gtd.apply(lambda row: compute_nl(row['longitude'], row['latitude']), axis=1)
+	basic_ec[['LAT']] = basic_ec[['LAT']].apply(pd.to_numeric)
+	basic_ec[['LONGITUDE']] = basic_ec[['LONGITUDE']].apply(pd.to_numeric)
+	gtd = gtd.reset_index(drop=True)
+
+	add_feature = ['POPGPW_2005_40']
+	gtd = pd.concat([gtd, pd.DataFrame(columns=add_feature)])
+
+	for i in range(gtd.shape[0]):
+		distance = []
+		lon = gtd.iloc[i]['longitude']
+		lat = gtd.iloc[i]['latitude']
+		for j in range(basic_ec.shape[0]):
+			distance.append(geodesic((lonlat_list[j][1],lonlat_list[j][0]), (lat,lon)))
+		min_index = distance.index(min(distance)) 
+		for j in range(len(add_feature)):
+			# Calculate the population density
+			gtd.loc[i,add_feature[j]] = float(basic_ec.iloc[min_index][add_feature[j]]/basic_ec.iloc[min_index]['AREA'])
+	gtd[add_feature] = gtd[add_feature].apply(pd.to_numeric)
+	keep_geo = gtd.groupby('Timestamp').first()
+	gtd_grouped = gtd_one_hot(gtd)
+	gtd_grouped = gtd_grouped.reset_index('Timestamp')
+	gtd_grouped['longitude'] = pd.Series(list(keep_geo['longitude']))
+	gtd_grouped['latitude'] = pd.Series(list(keep_geo['latitude']))
+
+	# In order to take normal day into account from 1989/12/31 to 2018/01/01
+	b = dt.datetime.strptime('1989/12/31', '%Y/%m/%d').date()
+	ind = []
+	vi = []
+	for x in range(12000):
+		b += pd.Timedelta(days = 1)
+		if b == dt.datetime.strptime('2018/01/01', '%Y/%m/%d').date():
+			break		
+		if get_week_day(b) == 5 or get_week_day(b) == 6:
+			continue		
+		ind.append(b)
+		vi.append(1)
+	ts = pd.Series(vi, index = ind)
+	dict_ts = {'Timestamp':ts.index}
+	df_day = pd.DataFrame(dict_ts)
+
+	gtd_grouped = pd.merge(gtd_grouped,df_day,how='right')
+	gtd_grouped = gtd_grouped.sort_values(by=['Timestamp'])
+	gtd_grouped = gtd_grouped.reset_index()
+	gtd_grouped = gtd_grouped.drop(['index'],axis=1)
+	gtd_grouped.fillna(0,inplace=True)
+	gtd_grouped['week'] = gtd_grouped['Timestamp'].apply(get_week_day)
+	gtd_grouped = gtd_grouped.drop(['week'],axis=1)
+
+	tmp = list(gtd_grouped)[1:]
+	for i in list(list(gtd_grouped)[1:]):
+		if i == 'Timestamp':
+			continue
+		gtd_grouped = lag(gtd_grouped,i,2)
+	gtd_grouped = gtd_grouped[(gtd_grouped['occur_count']!=0) | (gtd_grouped['occur_count_1']!=0) | (gtd_grouped['occur_count_2']!=0)]
+	gtd_grouped = gtd_grouped.fillna(0)
+
+	for i in tmp:
+		sum_str = 'sum_' + i
+		str1 = i+'_1'
+		str2 = i+'_2'
+		if i == 'latitude' or i == 'longitude':
+			gtd_grouped[sum_str] = pd.Series(list(gtd_grouped[str1]))
+			gtd_grouped = gtd_grouped.drop([str1,str2],axis=1)
+			continue
+		if i == 'nightlight':
+			# For nightlight, take the max
+			gtd_grouped[sum_str] = gtd_grouped.apply(lambda row: max(row[str1], row[str2]), axis=1)
+			gtd_grouped = gtd_grouped.drop([str1,str2],axis=1)
+			continue
+		# For other, take the sum
+		gtd_grouped[sum_str] = gtd_grouped[str1] + gtd_grouped[str2]
+		gtd_grouped = gtd_grouped.drop([str1,str2],axis=1)
+		
+	gtd_grouped = gtd_grouped.drop(['latitude','longitude','sum_latitude','sum_longitude'],axis=1)
+
+	# Load the market data - From Reuters client	
+	sheetname='ISRAEL TA 100'
+	Is100 = pd.read_excel('market_date_19.xlsx',sheetname)
+	sheetname='SP500'
+	Sp500 = pd.read_excel('market_date_19.xlsx',sheetname)	
+
+	is100 = Is100.iloc[::-1]
+	sp500 = Sp500.iloc[::-1]
+
+	is100['Timestamp'] = is100['Timestamp'].apply(num2date_)
+	sp500['Timestamp'] = sp500['Timestamp'].apply(num2date_)
+
+	is100 = is100[is100['Timestamp'] < dt.datetime.strptime('2018-01-01', '%Y-%m-%d').date()]
+	sp500 = sp500[sp500['Timestamp'] < dt.datetime.strptime('2018-01-01', '%Y-%m-%d').date()]
+
+	sp500_onediff,sp500_twodiff = get_diff(sp500,'sp500')
+	is100_onediff,is100_twodiff = get_diff(is100,'is100')
+			
+	is100_twodiff = lag(is100_twodiff,'twologdiff_is100',2)
+	is100_twodiff = is100_twodiff.dropna()
+	sp500_onediff = lag(sp500_onediff,'logdiff_sp500',2)
+	sp500_onediff = sp500_onediff.dropna()
+	
+	diff_list = [sp500_onediff,is100_twodiff]
+	lag_features = []
+	lag_numbers = []
+	target_col = 'twologdiff_is100'
+	future_drop_col = []
+	feature = final_process(gtd_grouped,diff_list,lag_features,lag_numbers,target_col,future_drop_col)
+	feature = feature.drop(['sum_POPGPW_2005_40','sum_nightlight'],axis=1)		
+
+	print('Total number of features:',feature.shape[0])
+
+	# Data splitting
+	train = feature[:3502]
+	val = feature[3502:3802]
+	train[train['occur_count'] != 0].shape[0]
+	val_cut_point = 3502
+	cut_point = 3802
+	
+	mode = sys.argv[1]
+	
+	if mode == 1:
+		experment_full_sample(feature, cut_point)
+	elif mode == 2:
+		experment_terr(feature, cut_point)
+	elif mode == 3:
+		one_step_ahead(feature)
+	
+
+
+if __name__ == '__main__':
+	main()
+	
