@@ -1,7 +1,12 @@
 import re
 import json
+from nltk.corpus import wordnet
 from nltk.corpus import stopwords
 import stanfordnlp
+from collections import Counter
+import pandas as pd
+import difflib
+
 stanfordnlp.download('en')
 nlp = stanfordnlp.Pipeline()
 
@@ -282,23 +287,43 @@ def extract_casualties(text):
     '''
     Extract casualities from the text.
     '''
-    probablity=json.loads('probablity.json')
+    probablity=eval(open('probablity.json').read())
     wordlist,text=gettext(text)
     doc = nlp(text)
     list_index=0
-    death=[]
-    wounded=[]
+    death=None
+    wounded=None
     for i in doc.sentences[0]:
         if i[2].text=='person':
             if i[0].text+'_'+i[1] in probablity.keys():
                 if probablity[i[0].text+'_'+i[1]]=='d':
-                    death.append(wordlist[list_index])
+                    death=wordlist[list_index]
                 else:
-                    wounded.append(wordlist[list_index])
+                    wounded=wordlist[list_index]
             list_index+=1
+        elif i[0].text=='person':
+            if i[1]+'_'+i[2].text in probablity.keys():
+                if probablity[i[1]+'_'+i[2].text]=='d':
+                    death=wordlist[list_index]
+                else:
+                    wounded=wordlist[list_index]
+            list_index+=1
+    if death is not None and len(re.findall('\d+',death))>0:
+        death=re.findall('\d+',death)[0]
+    elif death is not None:
+        death=1
+    else:
+        death=0
+    #print(wound)
+    if wounded is not None and len(re.findall('\d+',wounded))>0:
+        wounded=re.findall('\d+',wounded)[0]
+    elif wounded is not None:
+        wounded=1
+    else:
+        wounded=0
     return death,wounded
 
-class loaction_extactor():
+class Loaction_extactor():
     '''
     Class used to extract the location from the news.
 
@@ -388,22 +413,22 @@ class loaction_extactor():
         '''
         text=text.replace(',','')
         text=text.replace('.','')
-        cname,ccode=getcountry_code(text)
-        word,isup=getlocationword(text)
+        cname,ccode=self.getcountry_code(text)
+        word,isup=self.getlocationword(text)
         for i,u in zip(word,isup):
             if u==1:
                 if i != cname:
-                    tem =islocation(i,ccode,self.location_data)
+                    tem =self.islocation(i,ccode)
                     if len(tem)>0:# is not None:
                         return tem['name'].values[0],tem['latitude'].values[0],tem['longitude'].values[0],tem['country code'].values[0],tem['nameasc'].values[0]
         for i in range(len(word)-1):
             if isup[i] == 1 and isup[i+1] == 1:
-                tem =islocation(word[i]+' '+word[i+1],ccode,self.location_data)
+                tem =self.islocation(word[i]+' '+word[i+1],ccode)
                 if len(tem)>0:#if tem is not None:
                         return tem['name'].values[0],tem['latitude'].values[0],tem['longitude'].values[0],tem['country code'].values[0],tem['nameasc'].values[0]
         for i in range(len(word)-2):
             if isup[i] == 1 and isup[i+1] == 1 and isup[i+2] == 1:
-                tem =islocation(word[i]+' '+word[i+1]+' '+word[i+2],ccode,self.location_data)
+                tem =self.islocation(word[i]+' '+word[i+1]+' '+word[i+2],ccode)
                 if len(tem)>0:#if tem is not None:
                         return tem['name'].values[0],tem['latitude'].values[0],tem['longitude'].values[0],tem['country code'].values[0],tem['nameasc'].values[0]
         return cname,None,None,cname,None

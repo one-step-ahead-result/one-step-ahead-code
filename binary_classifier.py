@@ -85,21 +85,21 @@ def t2v(text):
 w2v=Glove('glove.6B.50d.txt')
 
 # load train data.
-df_wikipedia=pd.read_csv('wiki_news_url.csv',sep='\t')
+df_incident=pd.read_csv('incident_label.csv',sep='\t')
 df_NYT=pd.read_csv("new_NYT.csv",sep='\t')
 tokener=nltk.tokenize.word_tokenize
-df_NYT['token']=NYT['title'].map(lambda x:tokener(x))
-df_NYT['length']=NYT['token'].map(lambda x:len(x))
+df_NYT['token']=df_NYT['title'].map(lambda x:tokener(x))
+df_NYT['length']=df_NYT['token'].map(lambda x:len(x))
 NYT_train=df_NYT.loc[df_NYT['length']>5].loc[df_NYT['length']<=20]
 NYT_train['vec']=NYT_train['title'].map(lambda x:t2v(x))
-df_wikipedia['token']=NYT['title'].map(lambda x:tokener(x))
-df_wikipedia['length']=df_wikipedia['token'].map(lambda x:len(x))
-wikipedia_train=df_wikipedia.loc[df_wikipedia['length']>5].loc[df_wikipedia['length']<=20]
-wikipedia_train['vec']=wikipedia_train['title'].map(lambda x:t2v(x))
+df_incident['token']=df_NYT['title'].map(lambda x:tokener(x))
+df_incident['length']=df_incident['token'].map(lambda x:len(x))
+incident_train=df_incident.loc[df_incident['length']>5].loc[df_incident['length']<=20]
+incident_train['vec']=incident_train['title'].map(lambda x:t2v(x))
 
 X=[]
 Y=[]
-for i in wikipedia_train['vec']:
+for i in incident_train['vec']:
     X.append(i)
     Y.append(1)
 for i in NYT_train['vec']:
@@ -151,4 +151,5 @@ for i in X_test:
     Y.append(y)
 Y=torch.cat(Y).reshape(-1)
 df_reuter['Y']=Y.tolist()
-df_reuter.to_csv('reuter_with_label.csv',sep='\t')
+df_reuter=df_reuter.loc[df_reuter['Y']==1].reset_index()
+df_reuter.to_csv('reuter_incident.csv',sep='\t')
