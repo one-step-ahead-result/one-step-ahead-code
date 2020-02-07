@@ -53,4 +53,4 @@ The Global Terrorism Database is an an-nually updated open-source database of te
 
 Unfortunately, the Reuters archive website is not available now.  
 
-In the sample_data folder, we provide samples of the above data (except that the nightlight file, which is too large).
+In the sample_data folder, we provide samples of the above data (except the nightlight file, which is too large).
